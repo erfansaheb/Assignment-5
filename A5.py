@@ -17,12 +17,15 @@ def escape(incumbent):
 def update_weights(weights, thetas, scores, r = 0.2):
     new_weights = []
     for w, weight in enumerate(weights):
-        new_weights.append((weight*(1-r)+r*(scores[w]/thetas[w])))
+        if thetas[w] > 0:
+            new_weights.append((weight*(1-r)+r*(scores[w]/thetas[w])))
+        else:
+            new_weights.append(weight)
     return new_weights
 def normalize_weights(weights):
     return weights/np.sum(weights)
 
-def ALNS(init_sol, init_cost, probability, operators, prob, T_f = 0.1, warm_up = 100):
+def ALNS(init_sol, init_cost, probability, operators, prob, rng, T_f = 0.1, warm_up = 100):
     incumbent = init_sol
     best_sol = init_sol
     cost_incumb = init_cost
@@ -43,13 +46,13 @@ def ALNS(init_sol, init_cost, probability, operators, prob, T_f = 0.1, warm_up =
     weights = probability
     sols = set([str(init_sol)[1:-1]])
     for itr in range(10000):
-        # if itr == warm_up and np.mean(delta) == 0:
-        #     warm_up += 100
+        if itr == warm_up and np.mean(delta) == 0:
+            warm_up += 100
         if itr < warm_up:
-            op_id = np.random.choice(range(len(operators)), replace=True, p=probability )
+            op_id = rng.choice(range(len(operators)), replace=True, p=probability )
             operator = operators[op_id]
             thetas[op_id] += 1
-            new_sol, new_costs, new_features = operator(incumbent, copy_costs(costs), copy_features(features), prob)
+            new_sol, new_costs, new_features = operator(incumbent, copy_costs(costs), copy_features(features), rng, prob)
             new_sol_str = str(new_sol)[1:-1]
             if new_sol_str not in sols:
                 sols.add(new_sol_str)
@@ -72,23 +75,27 @@ def ALNS(init_sol, init_cost, probability, operators, prob, T_f = 0.1, warm_up =
                     non_imp_count = 0
                     
             elif feasiblity:
-                if np.random.uniform() < 0.8:
+                if rng.uniform() < 0.8:
                     incumbent = new_sol
                     cost_incumb = new_cost
                     costs = copy_costs(new_costs)
                     features = copy_features(new_features)
-                delta.append(delta_E)
+                if delta_E>0:
+                    delta.append(delta_E)
         else: 
-            delta_avg = np.mean(delta)
-            if delta_avg == 0.0:
-                delta_avg = new_cost/warm_up
-            T_0 = -delta_avg / np.log(0.8)
-            alpha = 0.9995#np.power((T_f/T_0), (1/(10000-warm_up)))
-            T = T_0
+            if itr == warm_up:
+                delta_avg = np.mean(delta[1:])
+                # if delta_avg == 0.0:
+                #     delta_avg = new_cost/warm_up
+                T_0 = -delta_avg / np.log(0.8)
+                alpha = 0.9995#np.power((T_f/T_0), (1/(10000-warm_up)))
+                T = T_0
+                Ts = [T]
+                Ps = [np.exp(-delta_avg/T)]
             if non_imp_count > 300:
                 for i in range(1,21):
                     escape = operators[2]
-                    incumbent, costs, features = escape(incumbent, copy_costs(costs), copy_features(features), prob) # TODO
+                    incumbent, costs, features = escape(incumbent, copy_costs(costs), copy_features(features), rng, prob) # TODO
                     new_cost = sum(costs)
                     if new_cost < best_cost:
                         
@@ -99,14 +106,20 @@ def ALNS(init_sol, init_cost, probability, operators, prob, T_f = 0.1, warm_up =
                         break
                 itr += i
             if (itr - warm_up) % 100 == 0:
+                if itr == 2700:
+                    print('here')
+                print(weights)
                 weights = update_weights(weights, thetas, scores, r )
+                
                 scores = [0 for i in range(len(operators))]
                 thetas = [0 for i in range(len(operators))]
+                probability = normalize_weights(weights)
+                print(itr, probability)
         
-            op_id = np.random.choice(range(len(operators)), replace=True, p=probability )
+            op_id = rng.choice(range(len(operators)), replace=True, p=probability )
             operator = operators[op_id]
             thetas[op_id] += 1
-            new_sol, new_costs, new_features = operator(incumbent, copy_costs(costs), copy_features(features), prob)
+            new_sol, new_costs, new_features = operator(incumbent, copy_costs(costs), copy_features(features), rng, prob)
             new_sol_str = str(new_sol)[1:-1]
             if new_sol_str not in sols:
                 sols.add(new_sol_str)
@@ -126,11 +139,12 @@ def ALNS(init_sol, init_cost, probability, operators, prob, T_f = 0.1, warm_up =
                     scores[op_id] += 2
                     best_sol = incumbent
                     best_cost = cost_incumb
-                    last_improvement = itr + warm_up
+                    last_improvement = itr
                     
             elif feasiblity:
                 prbb = np.exp(-delta_E/T)
-                if np.random.uniform() < prbb:
+                Ps.append(prbb)
+                if rng.uniform() < prbb:
             # and np.random.uniform() < np.exp(-delta_E/T):
                     incumbent = new_sol
                     cost_incumb = new_cost
@@ -138,7 +152,8 @@ def ALNS(init_sol, init_cost, probability, operators, prob, T_f = 0.1, warm_up =
                     features = copy_features(new_features)
                 
             T *= alpha
-    return best_sol, best_cost, last_improvement
+            Ts.append(T)
+    return best_sol, best_cost, last_improvement, sols, Ts, Ps
 
 if __name__ == '__main__':
     problems = [
@@ -159,7 +174,7 @@ if __name__ == '__main__':
         # [0,0,1]
         ]
     
-    repeat = 10
+    repeat = 1
     info = pd.DataFrame(columns=['problem','probability', 'solution', 'average_objective', 'best_objective',
                                   'improvement', 'best_objs', 'last_improvement', 'running_time', 'Ps'])
     for j, p in enumerate(problems):
@@ -170,13 +185,14 @@ if __name__ == '__main__':
             initial_sol = [0]*prob['n_vehicles'] + [i for i in range(1,prob['n_calls']+1) for j in range(2)]
             init_cost = prob['Cargo'][:,3].sum()
             best_sol, best_cost, last_improvement = [[] for i in range(repeat)], [0 for i in range(repeat)], [0 for i in range(repeat)]
+            sols = [set() for i in range(repeat)]
             Ps = [[] for i in range(repeat)]
             Ts = [[] for i in range(repeat)]
             deltas = [[] for i in range(repeat)]
             for i in range(repeat ):
-                np.random.seed(23+i)
+                rng = np.random.default_rng(23+i)#np.random.seed(23+i)
                 # print('seed', 23+i)
-                best_sol[i], best_cost[i], last_improvement[i] = ALNS(initial_sol, init_cost, prb, operators, prob, warm_up = 100)
+                best_sol[i], best_cost[i], last_improvement[i], sols[i], Ts[i], Ps[i] = ALNS(initial_sol, init_cost, prb, operators, prob, rng, warm_up = 100)
                 # print(best_sol[i],best_cost[i])
             info = info.append({'problem': str(j),
                                 'probability': prb,

@@ -6,7 +6,7 @@ Created on Tue Apr 19 14:40:15 2022
 """
 from auxiliary_functions import *
 
-def one_ins_first_best(sol, costs, features, prob):
+def one_ins_first_best(sol, costs, features, rng, prob):
     Solution = sol + [0]
 # =============================================================================
 #     if np.random.random()< 0.30:
@@ -16,7 +16,7 @@ def one_ins_first_best(sol, costs, features, prob):
 # =============================================================================
     # selection_prob = np.sum(prob['VesselCargo'], axis = 0)/np.sum(prob['VesselCargo'])    
     # selected_call = np.random.choice(np.arange(1,prob['n_calls']+1), p = selection_prob)
-    selected_call = np.random.choice(np.arange(1,prob['n_calls']+1))
+    selected_call = rng.choice(np.arange(1,prob['n_calls']+1))
     call_locs = np.where(Solution==selected_call)[0]
     ZeroIndexBef = np.array(np.where(Solution == np.array(0))[0], dtype=int)
     len_v = [ZeroIndexBef[0]] + [j-i-1 for i, j in zip(ZeroIndexBef[:-1], ZeroIndexBef[1:])]
@@ -85,7 +85,7 @@ def one_ins_first_best(sol, costs, features, prob):
         costs[-1] -= prob['Cargo'][selected_call-1,3]
     return best_sol [:-1], costs, best_features
 
-def one_ins_best(sol, costs, features, prob):
+def one_ins_best(sol, costs, features, rng, prob):
     Solution = sol + [0]
 # =============================================================================
 #     if np.random.random()< 0.30:
@@ -95,7 +95,7 @@ def one_ins_best(sol, costs, features, prob):
 # =============================================================================
     # selection_prob = np.sum(prob['VesselCargo'], axis = 0)/np.sum(prob['VesselCargo'])
     # selected_call = np.random.choice(np.arange(1,prob['n_calls']+1), p = selection_prob)
-    selected_call = np.random.choice(np.arange(1,prob['n_calls']+1))
+    selected_call = rng.choice(np.arange(1,prob['n_calls']+1))
     call_locs = np.where(Solution==selected_call)[0]
     ZeroIndexBef = np.array(np.where(Solution == np.array(0))[0], dtype=int)
     len_v = [ZeroIndexBef[0]] + [j-i-1 for i, j in zip(ZeroIndexBef[:-1], ZeroIndexBef[1:])]
@@ -163,11 +163,11 @@ def one_ins_best(sol, costs, features, prob):
         costs[-1] -= prob['Cargo'][selected_call-1,3]
     return best_sol [:-1], costs, best_features
 
-def multi_ins_new(sol, costs, features, prob):
+def multi_ins_new(sol, costs, features, rng, prob):
     Solution = sol + [0] #np.append(sol, [0])
-    rm_size = np.random.choice(np.arange(2,6))
+    rm_size = rng.choice(np.arange(2,6))
     # selection_prob = np.sum(prob['VesselCargo'], axis = 0)/np.sum(prob['VesselCargo'])
-    selected_calls = np.random.choice(np.arange(1,prob['n_calls']+1),
+    selected_calls = rng.choice(np.arange(1,prob['n_calls']+1),
                                      size = rm_size,
                                      replace = False,
                                       # p = selection_prob
@@ -234,13 +234,11 @@ def multi_ins_new(sol, costs, features, prob):
                     if not c.startswith('F'):
                         if int(c[-1]) == pos or int(c[-1]) == del_idx:
                             Solution = new_sol[:ZeroIndex[v]+ pos - len_v[v]] + new_sol[ZeroIndex[v]+ pos - len_v[v]+1:]
-                            continue
-# =============================================================================
-#                             if c.startswith('T'):
-#                                 break
-#                             else:
-#                                 continue
-# =============================================================================
+                            # continue
+                            if c.startswith('T'):
+                                break
+                            else:
+                                continue
                         else:
                             Solution = new_sol[:ZeroIndex[v]+ pos - len_v[v]] + new_sol[ZeroIndex[v]+ pos - len_v[v]+1:]
                             continue

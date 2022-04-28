@@ -6,7 +6,7 @@ Created on Thu Apr 21 10:46:15 2022
 """
 from pdp_utils import load_problem, feasibility_check, cost_function
 from auxiliary_functions import *
-from operators import one_ins_best, one_ins_first_better, multi_ins_new, multi_ins_rand, v_swap, one_ins_first_better_worst_remove,one_ins_best_worst_remove,multi_ins_rand_worst_remove
+from operators import one_ins_best, one_ins_first_better, multi_ins_new, multi_ins_rand, v_swap, one_ins_first_better_worst_remove,one_ins_best_worst_remove,multi_ins_rand_worst_remove,multi_ins_new_worst_remove
 from auxiliary_functions import copy_costs, copy_features
 import numpy as np
 import pandas as pd
@@ -167,20 +167,21 @@ if __name__ == '__main__':
                 # 'Call_300_Vehicle_90'
                 ]
     operators = [
-        # one_ins_best,
-        # one_ins_first_better,
+        one_ins_best,
+        one_ins_first_better,
         # v_swap,
         # multi_ins_new,
         multi_ins_rand,
-        one_ins_first_better_worst_remove,
-        one_ins_best_worst_remove,
-        multi_ins_rand_worst_remove
+        # one_ins_first_better_worst_remove,
+        # one_ins_best_worst_remove,
+        # multi_ins_new_worst_remove,
+        # multi_ins_rand_worst_remove
         ]
     probabilities = [
         [1/len(operators) for i in operators],
         ]
     
-    repeat = 10
+    repeat = 1
     for j, p in enumerate(problems):
         
         for prb in probabilities:

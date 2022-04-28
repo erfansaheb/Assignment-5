@@ -160,7 +160,6 @@ def one_ins_best(sol, costs, features, call_costs, rng, prob):
 
 def multi_ins_new(sol, costs, features, call_costs, rng, prob):
     Solution = sol + [0]
-    best_call_costs = copy_call_costs(call_costs)
     rm_size = rng.choice(np.arange(2,5))
     selected_calls = rng.choice(np.arange(1,prob['n_calls']+1),
                                      size = rm_size,
@@ -201,6 +200,8 @@ def multi_ins_new(sol, costs, features, call_costs, rng, prob):
         best_sols = [[] for i in range(len(selected_calls)) ]
         best_vs = [prob['n_vehicles'] for i in range(len(selected_calls))]
         best_features = [copy_features(features) for i in range(len(selected_calls))]
+        best_call_costs = [copy_call_costs(call_costs) for i in range(len(selected_calls))]
+        changes = [[] for i in range(len(selected_calls))]
         ZeroIndex = np.array(np.where(Solution == np.array(0))[0], dtype=int)
         len_v = [ZeroIndex[0]] + [j-i-1 for i, j in zip(ZeroIndex[:-1], ZeroIndex[1:])]
         for s, selected_call in enumerate(selected_calls):
@@ -211,6 +212,10 @@ def multi_ins_new(sol, costs, features, call_costs, rng, prob):
                         best_sols[s] = Solution[:-1] + [selected_call,selected_call] + Solution[-1:]
                         best_vs[s] = v
                         best_costs[s] = prob['Cargo'][selected_call-1,3]
+                        best_call_costs[s] = copy_call_costs(call_costs)
+                        best_call_costs[s][0, call_cost_loc[s]] = prob['Cargo'][selected_call-1,3]
+                        best_call_costs[s], changes[s] = update_call_costs(best_call_costs[s], selected_call, call_cost_loc, s)
+                        best_features[s] = copy_features(features)
                     continue
                 for pos in range(len_v[v]+1):
                     cost_v = costs[v]
@@ -235,16 +240,22 @@ def multi_ins_new(sol, costs, features, call_costs, rng, prob):
                         best_costs[s] = new_cost - cost_v
                         best_vs[s] = v
                         best_features[s] = new_features
+                        best_call_costs[s] = copy_call_costs(call_costs)
+                        best_call_costs[s][0, call_cost_loc[s]] = new_cost - cost_v
+                        best_call_costs[s], changes[s] = update_call_costs(best_call_costs[s], selected_call, call_cost_loc, s)
                     else:
                        Solution = new_sol[:ZeroIndex[v]+ pos - len_v[v]] + new_sol[ZeroIndex[v]+ pos - len_v[v]+1:]
         best_idx = np.argmin(best_costs)
+        call_cost_loc = list(map(sum, zip(call_cost_loc, changes[best_idx])))
+        call_costs = copy_call_costs(best_call_costs[best_idx])
         Solution = best_sols[best_idx]
         features = copy_features(best_features[best_idx])
         if best_vs[best_idx] != prob['n_vehicles']:
             costs[best_vs[best_idx]] += best_costs[best_idx]
             costs[-1] -= prob['Cargo'][selected_calls[best_idx]-1,3]
         selected_calls = np.delete(selected_calls, best_idx)
-    return Solution [:-1], costs, features, best_call_costs
+        call_cost_loc = call_cost_loc[:best_idx] + call_cost_loc[best_idx+1:]
+    return Solution [:-1], costs, features, call_costs
 
 def multi_ins_rand(sol, costs, features, call_costs, rng, prob):
     Solution = sol + [0]
@@ -637,3 +648,102 @@ def multi_ins_rand_worst_remove(sol, costs, features, call_costs, rng, prob):
     
     return Solution [:-1], costs, features, best_call_costs
 
+def multi_ins_new_worst_remove(sol, costs, features, call_costs, rng, prob):
+    Solution = sol + [0]
+    rm_size = rng.choice(np.arange(2,5))
+    selected_calls = worstRemoval(call_costs, rm_size, rng)
+    # rng.choice(np.arange(1,prob['n_calls']+1),
+    #                                  size = rm_size,
+    #                                  replace = False
+    #                                  )
+    call_cost_loc = [call_costs[2, selected_calls[i] -1].astype(int) for i in range(rm_size)]#call_costs[2, selected_calls -1].astype(int)
+    sel_loc = np.array([np.where(Solution == np.int32(selected_calls[i]))[0] for i in range(rm_size)])
+    ZeroIndexBef = np.array(np.where(Solution == np.array(0))[0], dtype=int)
+    len_v = [ZeroIndexBef[0]] + [j-i-1 for i, j in zip(ZeroIndexBef[:-1], ZeroIndexBef[1:])]
+    cur_v = []
+    for c_id, call in enumerate(selected_calls):
+        cur_v.append(len(ZeroIndexBef[ZeroIndexBef<sel_loc[c_id][0]]))
+        if cur_v[c_id] == prob['n_vehicles']:
+            Solution = Solution[:sel_loc[c_id][0]] + Solution[sel_loc[c_id][0]+1:sel_loc[c_id][1]] + Solution[sel_loc[c_id][1]+1:]
+            ZeroIndexBef[cur_v[c_id]:] -= 2
+            len_v[cur_v[c_id]] -= 2
+            sel_loc[sel_loc>sel_loc[c_id][1]]-=1
+            sel_loc[sel_loc>sel_loc[c_id][0]]-=1
+            sel_loc[c_id][1] += 1
+        else:
+            sol_2 = Solution[:sel_loc[c_id][0]] + Solution[sel_loc[c_id][0]+1:sel_loc[c_id][1]] + Solution[sel_loc[c_id][1]+1:]
+            best_cost = cur_cost4V(cur_v[c_id], Solution[ZeroIndexBef[cur_v[c_id]]-len_v[cur_v[c_id]]:ZeroIndexBef[cur_v[c_id]]],
+                                  sol_2[ZeroIndexBef[cur_v[c_id]]-len_v[cur_v[c_id]]:ZeroIndexBef[cur_v[c_id]]-2],
+                                  *(sel_loc[c_id]-(sum(len_v[:cur_v[c_id]])+ len(len_v[:cur_v[c_id]]))),features[2],prob)
+            
+            Solution = sol_2
+            ZeroIndexBef[cur_v[c_id]:] -= 2
+            len_v[cur_v[c_id]] -= 2
+            sel_loc[sel_loc>sel_loc[c_id][1]]-=1
+            sel_loc[sel_loc>sel_loc[c_id][0]]-=1
+            sel_loc[c_id][1] += 1
+            features = features_delete(features, cur_v[c_id], *(sel_loc[c_id]-(sum(len_v[:cur_v[c_id]])+ len(len_v[:cur_v[c_id]]))))
+            costs[cur_v[c_id]] -= best_cost
+            costs[-1] += prob['Cargo'][call-1,3]
+
+    for k in range(rm_size):
+        best_costs = [np.inf for i in range(len(selected_calls))]
+        best_sols = [[] for i in range(len(selected_calls)) ]
+        best_vs = [prob['n_vehicles'] for i in range(len(selected_calls))]
+        best_features = [copy_features(features) for i in range(len(selected_calls))]
+        best_call_costs = [copy_call_costs(call_costs) for i in range(len(selected_calls))]
+        changes = [[] for i in range(len(selected_calls))]
+        ZeroIndex = np.array(np.where(Solution == np.array(0))[0], dtype=int)
+        len_v = [ZeroIndex[0]] + [j-i-1 for i, j in zip(ZeroIndex[:-1], ZeroIndex[1:])]
+        for s, selected_call in enumerate(selected_calls):
+            avail_vehs = [i for i in range(prob['n_vehicles']) if prob['VesselCargo'][i,selected_call-1] == 1]+ [prob['n_vehicles']]
+            for v in avail_vehs:
+                if v == prob['n_vehicles']:
+                    if best_costs[s] >= prob['Cargo'][selected_call-1,3]:
+                        best_sols[s] = Solution[:-1] + [selected_call,selected_call] + Solution[-1:]
+                        best_vs[s] = v
+                        best_costs[s] = prob['Cargo'][selected_call-1,3]
+                        best_call_costs[s] = copy_call_costs(call_costs)
+                        best_call_costs[s][0, call_cost_loc[s]] = prob['Cargo'][selected_call-1,3]
+                        best_call_costs[s], changes[s] = update_call_costs(best_call_costs[s], selected_call, call_cost_loc, s)
+                        best_features[s] = copy_features(features)
+                    continue
+                for pos in range(len_v[v]+1):
+                    cost_v = costs[v]
+                    new_sol = Solution[:ZeroIndex[v]+ pos - len_v[v]] +[selected_call]+ Solution[ZeroIndex[v]+ pos - len_v[v]:]
+                    del_idx, new_cost, feasibility, c, new_features = \
+                        findBestPosForDel(selected_call, v, 
+                                          new_sol[ZeroIndex[v]-len_v[v]:ZeroIndex[v]+1],
+                                          pos, copy_features(features), prob)
+                    if not c.startswith('F'):
+                        if int(c[-1]) == pos or int(c[-1]) == del_idx:
+                            Solution = new_sol[:ZeroIndex[v]+ pos - len_v[v]] + new_sol[ZeroIndex[v]+ pos - len_v[v]+1:]
+                            # continue
+                            if c.startswith('T'):
+                                break
+                            else:
+                                continue
+                        else:
+                            Solution = new_sol[:ZeroIndex[v]+ pos - len_v[v]] + new_sol[ZeroIndex[v]+ pos - len_v[v]+1:]
+                            continue
+                    elif new_cost - cost_v < best_costs[s]:
+                        best_sols[s] = new_sol[:ZeroIndex[v]-len_v[v]+ del_idx] +[selected_call]+ new_sol[ZeroIndex[v]-len_v[v]+ del_idx:]
+                        best_costs[s] = new_cost - cost_v
+                        best_vs[s] = v
+                        best_features[s] = new_features
+                        best_call_costs[s] = copy_call_costs(call_costs)
+                        best_call_costs[s][0, call_cost_loc[s]] = new_cost - cost_v
+                        best_call_costs[s], changes[s] = update_call_costs(best_call_costs[s], selected_call, call_cost_loc, s)
+                    else:
+                       Solution = new_sol[:ZeroIndex[v]+ pos - len_v[v]] + new_sol[ZeroIndex[v]+ pos - len_v[v]+1:]
+        best_idx = np.argmin(best_costs)
+        call_cost_loc = list(map(sum, zip(call_cost_loc, changes[best_idx])))
+        call_costs = copy_call_costs(best_call_costs[best_idx])
+        Solution = best_sols[best_idx]
+        features = copy_features(best_features[best_idx])
+        if best_vs[best_idx] != prob['n_vehicles']:
+            costs[best_vs[best_idx]] += best_costs[best_idx]
+            costs[-1] -= prob['Cargo'][selected_calls[best_idx]-1,3]
+        selected_calls = np.delete(selected_calls, best_idx)
+        call_cost_loc = call_cost_loc[:best_idx] + call_cost_loc[best_idx+1:]
+    return Solution [:-1], costs, features, call_costs

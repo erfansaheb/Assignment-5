@@ -6,11 +6,12 @@ Created on Thu Apr 21 10:46:15 2022
 """
 from pdp_utils import load_problem, feasibility_check, cost_function
 from auxiliary_functions import *
-from operators import one_ins_best, one_ins_first_better, multi_ins_new, multi_ins_rand, v_swap, one_ins_first_better_worst_remove,one_ins_best_worst_remove,multi_ins_rand_worst_remove,multi_ins_new_worst_remove
+from operators import one_ins_best, one_ins_first_better, multi_ins_new, multi_ins_rand, one_ins_first_better_worst_remove,one_ins_best_worst_remove,multi_ins_rand_worst_remove,multi_ins_new_worst_remove,one_ins_new_v_worst_remove, multi_ins_rand_new_v_worst_remove
 from auxiliary_functions import copy_costs, copy_features
 import numpy as np
 import pandas as pd
 from time import time
+import matplotlib.pyplot as plt
 
 
 def update_weights(weights, thetas, scores, r = 0.2):
@@ -23,7 +24,11 @@ def update_weights(weights, thetas, scores, r = 0.2):
     return new_weights
 
 def normalize_weights(weights):
-    return weights/np.sum(weights)
+    normalized = weights/np.sum(weights)
+    less = normalized<0.05
+    normalized[less] = 0.05
+    normalized[~ less] = (1-(0.05*sum(less)))*normalized[~ less]/sum(normalized[~ less])
+    return normalized
 
 def ALNS(init_sol, init_cost, probability, operators, prob, rng, call_costs, T_f = 0.1, warm_up = 100):
     incumbent = init_sol
@@ -45,8 +50,10 @@ def ALNS(init_sol, init_cost, probability, operators, prob, rng, call_costs, T_f
     weights = probability
     sols = set([str(init_sol)[1:-1]])
     best_call_costs = copy_call_costs(call_costs)
+    ws = np.array([])
     for itr in range(10000):
-        # print(itr)
+        # if itr == 8:
+        #     print(itr)
         if itr == warm_up and np.mean(delta) == 0:
             warm_up += 100
         if itr < warm_up:
@@ -97,7 +104,7 @@ def ALNS(init_sol, init_cost, probability, operators, prob, rng, call_costs, T_f
                 Ps = [np.exp(-delta_avg/T)]
             if non_imp_count > 300:
                 for i in range(1,21):
-                    escape = operators[-1]
+                    escape = rng.choice([multi_ins_new_worst_remove,multi_ins_rand_worst_remove])#operators[-1]
                     incumbent, costs, features, call_costs = escape(incumbent, copy_costs(costs), copy_features(features), copy_call_costs(call_costs), rng, prob) 
                     new_cost = sum(costs)
                     if new_cost < best_cost:
@@ -109,12 +116,16 @@ def ALNS(init_sol, init_cost, probability, operators, prob, rng, call_costs, T_f
                         break
                 itr += i
                 non_imp_count = 0
+            
             if (itr - warm_up) % 100 == 0:
+                if itr - warm_up == 0:
+                    ws = np.append(ws, [weights])
                 weights = update_weights(weights, thetas, scores, r )
                 
                 scores = [0 for i in range(len(operators))]
                 thetas = [0 for i in range(len(operators))]
                 weights = normalize_weights(weights)
+                ws = np.append(ws, [weights])
                 # print(itr, weights)
         
             op_id = rng.choice(range(len(operators)), replace=True, p=weights )
@@ -155,7 +166,7 @@ def ALNS(init_sol, init_cost, probability, operators, prob, rng, call_costs, T_f
                     call_costs = copy_call_costs(new_call_costs)
                 
             T *= alpha
-    return best_sol, best_cost, last_improvement, sols
+    return best_sol, best_cost, last_improvement, sols, ws
 
 if __name__ == '__main__':
     problems = [
@@ -169,19 +180,20 @@ if __name__ == '__main__':
     operators = [
         one_ins_best,
         one_ins_first_better,
-        # v_swap,
         # multi_ins_new,
         multi_ins_rand,
-        # one_ins_first_better_worst_remove,
-        # one_ins_best_worst_remove,
-        # multi_ins_new_worst_remove,
-        # multi_ins_rand_worst_remove
+        one_ins_first_better_worst_remove,
+        one_ins_best_worst_remove,
+        multi_ins_new_worst_remove,
+        multi_ins_rand_worst_remove,
+        one_ins_new_v_worst_remove,
+        multi_ins_rand_new_v_worst_remove
         ]
     probabilities = [
         [1/len(operators) for i in operators],
         ]
     
-    repeat = 1
+    repeat = 2
     for j, p in enumerate(problems):
         
         for prb in probabilities:
@@ -189,16 +201,21 @@ if __name__ == '__main__':
             prob = load_problem( "..//..//Data//" +p+ ".txt")
             initial_sol = [0]*prob['n_vehicles'] + [i for i in range(1,prob['n_calls']+1) for j in range(2)]
             init_cost = prob['Cargo'][:,3].sum()
-            best_sol, best_cost, last_improvement = [[] for i in range(repeat)], [0 for i in range(repeat)], [0 for i in range(repeat)]
+            best_sol, best_cost, last_improvement, weights = [[] for i in range(repeat)], [0 for i in range(repeat)], [0 for i in range(repeat)], [[] for i in range(repeat)]
             sols = [set() for i in range(repeat)]
             call_costs = [ [prob['Cargo'][i-1,3] for i in range(1, prob['n_calls']+1)], [ i for i in range(1, prob['n_calls']+1)]]
             srt = np.argsort(call_costs[0])[::-1]
             call_costs = np.array([[call_costs[0][i] for i in srt], [call_costs[1][i] for i in srt], np.argsort([call_costs[1][i] for i in srt])])
             for i in range(repeat ):
                 rng = np.random.default_rng(31+i)
-                best_sol[i], best_cost[i], last_improvement[i], sols[i] = ALNS(initial_sol, init_cost, prb, operators, prob, rng, call_costs)
+                best_sol[i], best_cost[i], last_improvement[i], sols[i], weights[i] = ALNS(initial_sol, init_cost, prb, operators, prob, rng, call_costs)
             running_time = (time()-start)/repeat
             minidx = np.argmin(best_cost)
             print(p,'\t', str(prb), '\t', str(np.mean(best_cost)), '\t', str(best_cost[minidx]), '\t', 100*((init_cost-best_cost[minidx])/init_cost),
                   '\t', running_time)
             print('Solution: ', str(best_sol[minidx]))
+            ws = weights[0].reshape(-1,len(operators))
+            for i , oper in enumerate(operators):
+                plt.plot(np.arange(100,ws.shape[0]*100+1,100), ws[:,i], label = str(i))
+            plt.legend()
+            plt.show()

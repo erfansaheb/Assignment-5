@@ -6,6 +6,7 @@ Created on Tue Apr 19 14:31:13 2022
 """
 import numpy as np
 
+
 def cost4V(Vnum, Vcalls, problem):
     Cargo = problem['Cargo']
     FirstTravelCost = problem['FirstTravelCost']
